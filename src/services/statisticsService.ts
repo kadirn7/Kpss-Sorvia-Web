@@ -143,18 +143,18 @@ class StatisticsService {
         }
       });
 
-      // Toplam kontrolü: doğru + yanlış = toplam deneme
+      // Toplam kontrolü: doğru + yanlış = toplam deneme (sadece veri varsa)
       const calculatedTotal = correctCount + wrongCount;
-      if (calculatedTotal !== totalAttempts) {
+      if (totalAttempts > 0 && calculatedTotal !== totalAttempts) {
         console.warn(`⚠️ LessonStats tutarsızlık: doğru+yanlış=${calculatedTotal}, toplam=${totalAttempts}`);
       }
 
       const successRate = totalAttempts > 0 ? (correctCount / totalAttempts) * 100 : 0;
       const wrongRate = totalAttempts > 0 ? (wrongCount / totalAttempts) * 100 : 0;
 
-      // Oran kontrolü: başarı + yanlış ≈ 100%
+      // Oran kontrolü: başarı + yanlış ≈ 100% (sadece veri varsa)
       const rateSum = successRate + wrongRate;
-      if (Math.abs(rateSum - 100) > 1) {
+      if (totalAttempts > 0 && Math.abs(rateSum - 100) > 1) {
         console.warn(`⚠️ LessonStats oran tutarsızlığı: başarı=${successRate}%, yanlış=${wrongRate}%, toplam=${rateSum}%`);
       }
 
@@ -645,8 +645,11 @@ class StatisticsService {
   }
 
   /**
-   * GEÇİCİ: Tüm kullanıcı istatistiklerini temizle
-   * SADECE TEST AMAÇLI - KULLANICIN TÜM VERİLERİNİ SİLER
+   * Kullanıcının tüm istatistiklerini temizle
+   * - userQuestionProgress
+   * - userDailyStats
+   * - userWeeklyStats
+   * - userStreak
    */
   async clearAllUserStats(userId: string): Promise<void> {
     if (!this.isAuthReady()) {
@@ -654,8 +657,6 @@ class StatisticsService {
     }
 
     try {
-      console.log('⚠️ Tüm kullanıcı istatistikleri temizleniyor...');
-
       // 1. userQuestionProgress - tüm kayıtları sil
       const progressSnapshot = await getDocs(
         query(collection(firestore, collections.userQuestionProgress), where('userId', '==', userId))
@@ -667,7 +668,6 @@ class StatisticsService {
       });
       if (progressSnapshot.docs.length > 0) {
         await progressBatch.commit();
-        console.log(`✅ ${progressSnapshot.docs.length} progress kaydı silindi`);
       }
 
       // 2. userDailyStats - tüm kayıtları sil
@@ -681,7 +681,6 @@ class StatisticsService {
       });
       if (dailySnapshot.docs.length > 0) {
         await dailyBatch.commit();
-        console.log(`✅ ${dailySnapshot.docs.length} daily stats kaydı silindi`);
       }
 
       // 3. userWeeklyStats - tüm kayıtları sil
@@ -695,17 +694,13 @@ class StatisticsService {
       });
       if (weeklySnapshot.docs.length > 0) {
         await weeklyBatch.commit();
-        console.log(`✅ ${weeklySnapshot.docs.length} weekly stats kaydı silindi`);
       }
 
       // 4. userStreak - sıfırla
       const streakRef = doc(firestore, collections.userStreak, userId);
       await deleteDoc(streakRef);
-      console.log('✅ Streak sıfırlandı');
-
-      console.log('✅ Tüm istatistikler temizlendi');
     } catch (error) {
-      console.error('❌ İstatistik temizleme hatası:', error);
+      console.error('İstatistik temizleme hatası:', error);
       throw error;
     }
   }
