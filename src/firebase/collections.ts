@@ -1,0 +1,16 @@
+export const collections = {
+  users: 'users',
+  userQuestionProgress: 'userQuestionProgress',
+  userStats: 'userStats',
+  userDailyStats: 'userDailyStats',
+  userWeeklyStats: 'userWeeklyStats',
+  userStreak: 'userStreak',
+  playlists: 'playlists',
+  playlistQuestions: 'playlistQuestions',
+  questions: 'questions',
+  lessons: 'lessons',
+  topics: 'topics',
+  mockExams: 'mockExams',
+  mockExamQuestions: 'mockExamQuestions',
+  mockExamResults: 'mockExamResults',
+} as const;
