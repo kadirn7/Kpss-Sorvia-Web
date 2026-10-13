@@ -86,8 +86,10 @@ export interface UserQuestionProgress {
   correctCount: number;
   wrongCount: number;
   lastAttemptAt: string | null;
-  inWrongQueue: boolean;
-  consecutiveCorrectInQueue: number;
+  inMistakePool: boolean; // Yanlışlar havuzunda mı? (önceden inWrongQueue)
+  streak: number; // Havuzdayken aralıklı doğru sayısı (önceden consecutiveCorrectInQueue)
+  nextDueAt: number | null; // Bir sonraki tekrar zamanı (epoch ms)
+  masteredAt: number | null; // Havuzdan çıkış zamanı (epoch ms)
 }
 
 export interface MockExam {
