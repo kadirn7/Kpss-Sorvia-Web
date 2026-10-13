@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore';
+import { collection, doc, getDocs, query, setDoc, where } from 'firebase/firestore';
 import { firestore } from '../firebase/app';
 import { collections } from '../firebase/collections';
 import type { StatsStore, QuestionStat } from './quiz-engine';

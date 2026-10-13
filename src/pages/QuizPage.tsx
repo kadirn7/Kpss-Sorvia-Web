@@ -6,13 +6,13 @@ import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import type { Question, CorrectOption, Playlist } from '../types';
 import { fetchQuestionsByTopic, fetchQuestionsByPlaylist } from '../services/questionService';
-import { optionText } from '../services/questionService';
 import { recordQuestionAttempt } from '../services/progressService';
 import { getLastQuizIds, saveLastQuizIds } from '../services/quizSessionStore';
 import { pickQuizQuestions } from '../utils/quizPicker';
 import { useAuth } from '../context/AuthContext';
 import { fetchUserPlaylists, createUserPlaylist, addQuestionToPlaylist, removeQuestionFromPlaylist, fetchPlaylistIdsForQuestion } from '../services/playlistService';
 import statisticsService from '../services/statisticsService';
+import { shuffle } from '../utils/quiz-engine';
 
 // Kronolojik sıralama map'i - BU SIRALAMA DEĞİŞTİRİLMEMELİ
 export const CHRONOLOGICAL_ORDER: Record<string, string[]> = {
@@ -46,6 +46,45 @@ interface QuizAnswer {
   userAnswer: CorrectOption;
 }
 
+interface ShuffledQuestion {
+  question: Question;
+  shuffledOptions: { key: CorrectOption; text: string }[];
+  correctKey: CorrectOption;
+}
+
+// Şık karıştırma fonksiyonu
+function shuffleOptions(question: Question): ShuffledQuestion {
+  const originals: { orig: CorrectOption; text: string }[] = [
+    { orig: 'A', text: question.optionA },
+    { orig: 'B', text: question.optionB },
+    { orig: 'C', text: question.optionC },
+    { orig: 'D', text: question.optionD },
+    { orig: 'E', text: question.optionE },
+  ].filter((opt) => opt.text) as { orig: CorrectOption; text: string }[]; // Boş şıkları atla
+
+  // "Hepsi", "I ve II" gibi bağımlı şıkları tespit et
+  const looksDependent = (text: string): boolean => {
+    const t = text.replace(/[İIı]/g, 'i').toLowerCase().trim();
+    if (/hepsi|hiçbiri|hicbiri|yukaridaki|ikisi de/.test(t)) return true;
+    const words = t.split(/[\s,;.]+/).filter(Boolean);
+    const isRef = (w: string) => /^[ivx]+$/.test(w) || /^[a-e]$/.test(w);
+    const glue = ['ve', 'ile', 'yalniz', 'yalnizca'];
+    return words.length > 1 && words.some(isRef) && words.every((w) => isRef(w) || glue.includes(w));
+  };
+
+  const locked = originals.some((o) => looksDependent(o.text));
+  const ordered = locked ? originals : shuffle(originals);
+
+  const correctIndex = ordered.findIndex((o) => o.orig === question.correctOption);
+  const correctKey = OPTIONS[correctIndex];
+
+  return {
+    question,
+    shuffledOptions: ordered.map((o, i) => ({ key: OPTIONS[i], text: o.text })),
+    correctKey,
+  };
+}
+
 export default function QuizPage() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
@@ -54,7 +93,7 @@ export default function QuizPage() {
   const playlistId = searchParams.get('playlistId') || '';
   const source = searchParams.get('source') || 'topic';
 
-  const [questions, setQuestions] = useState<Question[]>([]);
+  const [questions, setQuestions] = useState<ShuffledQuestion[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -114,7 +153,10 @@ export default function QuizPage() {
 
         // Soruları seç (smart picker)
         const selectedQuestions = pickQuizQuestions(allQuestions, allQuestions.length, lastIds, false);
-        setQuestions(selectedQuestions);
+
+        // Şıkları karıştır
+        const shuffledQuestions = selectedQuestions.map((q) => shuffleOptions(q));
+        setQuestions(shuffledQuestions);
       } catch (err) {
         setError('Sorular yüklenemedi. Tekrar dene.');
         console.error('Error loading questions:', err);
@@ -131,16 +173,16 @@ export default function QuizPage() {
     setSelected(option);
     setShowSolution(true);
 
-    const isCorrect = option === currentQuestion.correctOption;
+    const isCorrect = option === currentQuestion.correctKey;
 
     // Progress kaydet
     if (user) {
       try {
         await recordQuestionAttempt({
           userId: user.uid,
-          questionId: currentQuestion.id,
-          lessonId: currentQuestion.lessonId,
-          topicId: currentQuestion.topicId,
+          questionId: currentQuestion.question.id,
+          lessonId: currentQuestion.question.lessonId,
+          topicId: currentQuestion.question.topicId,
           correct: isCorrect,
         });
 
@@ -156,7 +198,7 @@ export default function QuizPage() {
     setResults((prev) => [
       ...prev,
       {
-        questionId: currentQuestion.id,
+        questionId: currentQuestion.question.id,
         correct: isCorrect,
         userAnswer: option,
       },
@@ -170,7 +212,7 @@ export default function QuizPage() {
       setShowSolution(false);
     } else {
       // Quiz bittiğinde son soruları kaydet
-      const questionIds = questions.map((q) => q.id);
+      const questionIds = questions.map((sq) => sq.question.id);
       const quizKey = source === 'playlist' ? playlistId : topicId;
       saveLastQuizIds(quizKey, questionIds);
       setFinished(true);
@@ -196,7 +238,7 @@ export default function QuizPage() {
       setPlaylists(userPlaylists);
 
       // Sorunun hangi listelerde olduğunu kontrol et
-      const currentPlaylistIds = await fetchPlaylistIdsForQuestion(user.uid, currentQuestion.id);
+      const currentPlaylistIds = await fetchPlaylistIdsForQuestion(user.uid, currentQuestion.question.id);
       setSelectedPlaylists(new Set(currentPlaylistIds));
 
       setShowPlaylistModal(true);
@@ -230,20 +272,20 @@ export default function QuizPage() {
 
     setIsSavingToPlaylist(true);
     try {
-      const currentPlaylistIds = await fetchPlaylistIdsForQuestion(user.uid, currentQuestion.id);
+      const currentPlaylistIds = await fetchPlaylistIdsForQuestion(user.uid, currentQuestion.question.id);
       const currentSet = new Set(currentPlaylistIds);
 
       // Yeni eklenenler
       for (const playlistId of selectedPlaylists) {
         if (!currentSet.has(playlistId)) {
-          await addQuestionToPlaylist(playlistId, currentQuestion.id);
+          await addQuestionToPlaylist(playlistId, currentQuestion.question.id);
         }
       }
 
       // Kaldırılanlar
       for (const playlistId of currentSet) {
         if (!selectedPlaylists.has(playlistId)) {
-          await removeQuestionFromPlaylist(playlistId, currentQuestion.id);
+          await removeQuestionFromPlaylist(playlistId, currentQuestion.question.id);
         }
       }
 
@@ -399,15 +441,15 @@ export default function QuizPage() {
             {/* Question */}
             <div className="mb-8">
               <p className="text-lg leading-relaxed text-text-primary whitespace-pre-line">
-                {currentQuestion.questionText}
+                {currentQuestion.question.questionText}
               </p>
             </div>
 
             {/* Options */}
             <div className="space-y-3 mb-6">
-              {OPTIONS.map((option) => {
-                const isSelected = selected === option;
-                const isCorrectOption = option === currentQuestion.correctOption;
+              {currentQuestion.shuffledOptions.map((opt) => {
+                const isSelected = selected === opt.key;
+                const isCorrectOption = opt.key === currentQuestion.correctKey;
                 const showCorrect = answered && isCorrectOption;
                 const showWrong = answered && isSelected && !isCorrectOption;
 
@@ -424,14 +466,14 @@ export default function QuizPage() {
 
                 return (
                   <button
-                    key={option}
-                    onClick={() => handleSelect(option)}
+                    key={opt.key}
+                    onClick={() => handleSelect(opt.key)}
                     disabled={answered}
                     className={className}
                   >
                     <div className="flex items-start gap-3">
-                      <span className="font-semibold text-text-primary">{option})</span>
-                      <span className="text-text-primary flex-1">{optionText(currentQuestion, option)}</span>
+                      <span className="font-semibold text-text-primary">{opt.key})</span>
+                      <span className="text-text-primary flex-1">{opt.text}</span>
                       {showCorrect && <CheckCircle2 className="w-5 h-5 text-success flex-shrink-0" />}
                       {showWrong && <XCircle className="w-5 h-5 text-error flex-shrink-0" />}
                     </div>
@@ -441,23 +483,23 @@ export default function QuizPage() {
             </div>
 
             {/* Solution */}
-            {showSolution && currentQuestion.solution && (
+            {showSolution && currentQuestion.question.solution && (
               <div className="mb-6 p-4 bg-success/10 border border-success/20 rounded-lg">
                 <div className="flex items-start gap-2 mb-2">
                   <Lightbulb className="w-5 h-5 text-success flex-shrink-0 mt-0.5" />
                   <div>
                     <p className="font-semibold text-success mb-1">Çözüm:</p>
-                    <p className="text-text-primary text-sm">{currentQuestion.solution}</p>
+                    <p className="text-text-primary text-sm">{currentQuestion.question.solution}</p>
                   </div>
                 </div>
               </div>
             )}
 
             {/* Source */}
-            {currentQuestion.source && (
+            {currentQuestion.question.source && (
               <div className="mb-6">
                 <Badge variant="outline" className="text-xs">
-                  {currentQuestion.source}
+                  {currentQuestion.question.source}
                 </Badge>
               </div>
             )}

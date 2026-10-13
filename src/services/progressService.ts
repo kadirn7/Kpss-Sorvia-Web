@@ -1,7 +1,7 @@
 import { collection, doc, getDocs, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
 import { firestore } from '../firebase/app';
 import { collections } from '../firebase/collections';
-import { applyAnswer, type EngineConfig, DEFAULT_CONFIG } from '../utils/quiz-engine';
+import { applyAnswer, type EngineConfig } from '../utils/quiz-engine';
 
 /**
  * İstatistik Metriği Tanımı:
